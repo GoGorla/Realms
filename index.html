@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Plains RPG - Reborn</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>Plains RPG - Reborn</h1>
+    <div id="fps">FPS: --</div>
+  </header>
+
+  <div id="layout">
+    <aside id="side" class="card">
+      <div id="sideBody" class="dim">Choose a class to begin.</div>
+    </aside>
+
+    <main>
+      <nav id="tabs">
+        <button class="tab on" data-tab="hunt">Hunt</button>
+        <button class="tab" data-tab="inventory">Inventory</button>
+        <button class="tab" data-tab="crafting">Crafting</button>
+        <button class="tab" data-tab="shop">Shop</button>
+        <button class="tab" data-tab="villages">Villages</button>
+        <button class="tab right" data-tab="settings">Settings</button>
+      </nav>
+      <section id="tab-hunt" class="panel"></section>
+      <section id="tab-inventory" class="panel hidden"></section>
+      <section id="tab-crafting" class="panel hidden"></section>
+      <section id="tab-shop" class="panel hidden"></section>
+      <section id="tab-villages" class="panel hidden"></section>
+      <section id="tab-settings" class="panel hidden"></section>
+    </main>
+  </div>
+
+  <div id="toasts"></div>
+  <div id="itempanel" class="hidden"></div>
+  <div id="loadout" class="hidden">
+    <div id="disc"></div>
+    <div id="discLabel"></div>
+    <div id="slots"></div>
+  </div>
+
+  <div id="classSelect" class="modal">
+    <div class="cs-box">
+      <h2>Choose your class</h2>
+      <p class="dim">Fight stones, soldiers, witches, zombies and more on the plains, raid villages, trade at shop quarters and craft your gear.</p>
+      <div id="classCards"></div>
+      <button id="continueBtn" class="hidden"></button>
+      <button id="menuClose" class="hidden">Back to game</button>
+    </div>
+  </div>
+
+  <script src="data.js"></script>
+  <script src="game.js"></script>
+  <script src="ui.js"></script>
+</body>
+</html>
