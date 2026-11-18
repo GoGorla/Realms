@@ -10,7 +10,7 @@ const TABS={train:'Train',jobs:'Jobs',shop:'Shop',town:'Town',quests:'Quests',cr
 
 function fresh(cls){
  const sk={};SKILLS.forEach(s=>sk[s.id]=0);
- const s={cls,gold:50,sk,train:null,prog:{},inv:[{id:'potion',r:0,n:3}],eq:{weapon:{id:cls==='sorcerer'?'wand':'club',r:0}},house:0,shop:null,cd:0,quests:[],hp:1,opts:{loot:true,remains:true}};
+ const s={cls,gold:50,sk,train:{},prog:{},tw:{},loc:'home',trip:null,inv:[{id:'potion',r:0,n:3}],eq:{weapon:{id:START[cls]||'club',r:0}},house:0,shop:null,cd:0,quests:[],hp:1,opts:{loot:true,remains:true}};
  return s;
 }
 function load(){try{return JSON.parse(localStorage.getItem(SAVE))}catch(e){return null}}
@@ -18,21 +18,23 @@ function save(){if(S)localStorage.setItem(SAVE,JSON.stringify(S))}
 function toast(t){const d=document.createElement('div');d.textContent=t;$('#toast').appendChild(d);setTimeout(()=>d.remove(),2800)}
 
 // ---------- stats ----------
-const cm=x=>CLASSES[S.cls].m[x]||1;
-const rel=slot=>{const e=S.eq[slot];return e?1+.1*(e.r+1)+(e.bonus||0):1};
+const cm=x=>{const v=CLASSES[S.cls].m[x];return v===undefined?1:v};
+const relics=()=>['relic1','relic2','relic3'].map(k=>S.eq[k]).filter(Boolean);
+const relM=t=>relics().filter(e=>ITEMS[e.id].type===t).reduce((a,e)=>a*(t==='regen'?3:1+.1*(e.r+1)+(e.bonus||0)),1);
 function stats(){
  const k=S.sk;let hpI=0,spd=0;
  for(const sl of['helmet','chest','gloves','legs','boots']){const e=S.eq[sl];if(e){const it=ITEMS[e.id];hpI+=it.hp*rmult(e.r);spd+=it.spd*(1+.3*e.r)}}
- const w=S.eq.weapon,wi=w&&ITEMS[w.id],elem=wi&&wi.kind==='elem';
- const base=(10+k.basedmg*2)*rel('reld')+(wi?wi.dmg*rmult(w.r):0);
- const dmg=elem?base*cm('elem')*(1+.08*k.mind):base*(wi?cm('weapon'):1)*(1+.08*k.swing);
- return{maxHp:Math.round((100+k.basehp*10+hpI)*cm('health')*rel('relh')),dmg,elem,
+ const w=S.eq.weapon,wi=w&&ITEMS[w.id],kd=wi&&wi.kind,elem=kd==='elem';
+ const base=(10+k.basedmg*2)*relM('dmg')+(wi?wi.dmg*rmult(w.r):0);
+ const km={phys:'weapon',range:'range',elem:'elem',splash:'splash'},sm={phys:'swing',range:'swing',elem:'mind',splash:'mind'};
+ const dmg=kd?base*cm(km[kd])*(1+.08*k[sm[kd]]):base*(1+.08*k.swing);
+ return{maxHp:Math.round((100+k.basehp*10+hpI)*cm('health')*relM('hp')),dmg,elem,
   atk:2000/(cm('speed')*(1+.05*k.speed)*(1+spd)),crit:Math.min(.95,cm('phys')/15),critMul:1.5+.1*k.tactics,
-  regen:(.5+.3*k.tough)*cm('regen'),dodge:1/25+.01*k.dodge,resist:k.resist*.5,spdBonus:spd,
-  luck:cm('luck')*(1+.06*k.looting),jobM:1+.12*S.house,skillM:1+.15*S.house};
+  regen:(.5+.3*k.tough)*cm('regen')*relM('regen'),dodge:Math.min(.9,(1/25+.01*k.dodge)*cm('dodge')),resist:k.resist*.5,spdBonus:spd,
+  luck:cm('luck')*(1+.06*k.looting)*(1+.04*k.luck),jobM:1+.12*S.house,skillM:1+.15*S.house};
 }
 const totalLv=()=>Object.values(S.sk).reduce((a,b)=>a+b,0);
-function trainMs(id){const k=S.sk;return 15000*(1+k[id]*.4)*(1+totalLv()/25)/((id==='focus'?1:1+.1*k.focus)*(1+.15*S.house))}
+function trainMs(id){const k=S.sk;return SKILLS.find(x=>x.id===id).base*1000*(1+k[id]*.4)*(1+totalLv()/25)/((id==='focus'?1:1+.1*k.focus)*(1+.15*S.house))}
 
 // ---------- inventory ----------
 const maxSlots=()=>60+(S.eq.pack?ITEMS.backpack.slots*(S.eq.pack.r+1):0);
@@ -47,8 +49,9 @@ const rbadge=r=>`<span class="rar rn" style="color:${RCOLOR[r]};-webkit-text-str
 const unitPrice=(id,r)=>Math.round(ITEMS[id].price*Math.pow(2.1,r));
 const sellVal=(id,r)=>Math.max(1,Math.floor(unitPrice(id,r)*.4*(1+.01*S.sk.bargain)));
 function desc(id,r){const it=ITEMS[id],m=rmult(r);
- if(it.kind)return`${it.kind==='elem'?'Elemental':'Weapon'} damage +${fx(it.dmg*m)}${it.only?' (Sorcerer only)':''}`;
+ if(it.kind)return`${{phys:'Weapon',elem:'Elemental',range:'Range',splash:'Splash'}[it.kind]} damage +${fx(it.dmg*m)}${it.only?' (Sorcerer only)':''}`;
  if(it.heal)return`Restores ${fx(it.heal*m)} HP`;
+ if(it.type==='regen')return'Permanent 3x health regen';
  if(it.type)return`x${(1+.1*(r+1)).toFixed(2)} base ${it.type==='dmg'?'damage':'health'}, grows +0.01 per milestone`;
  if(it.slots)return`+${it.slots*(r+1)} bag slots`;
  if(it.slot==='gloves')return`Attack speed +${Math.round(it.spd*(1+.3*r)*100)}%`;
@@ -59,7 +62,7 @@ function rollR(luck){let r=0;while(r<8&&Math.random()<Math.min(.85,.32*luck/(1+.
 // ---------- shop ----------
 function genShop(){
  const f=S.sk.shopfame,n=rnd(5,10)+Math.floor(f/4);
- const pool=Object.values(ITEMS).filter(i=>i.slot&&(!i.only||i.only===S.cls));
+ const pool=sellPool();
  const items=[];for(let i=0;i<n;i++){const it=pick(pool),r=rollR(1+.08*f);items.push({id:it.id,r,sold:false})}
  S.shop={t:Date.now()+600000,items};
 }
@@ -72,10 +75,12 @@ function buy(i){const e=S.shop.items[i],p=buyPrice(e.id,e.r);
 // ---------- bag actions ----------
 function equip(i){const s=S.inv[i],it=ITEMS[s.id];
  if(it.only&&it.only!==S.cls)return toast('Only '+CLASSES[it.only].name+'s can use this');
- const old=S.eq[it.slot];
+ let slot=it.slot;
+ if(slot==='relic'){slot=['relic1','relic2','relic3'].find(k=>!S.eq[k]);if(!slot)return toast('All 3 relic slots are full. Unequip one first.')}
+ const old=S.eq[slot];
  if(old&&addItem(old.id,old.r,1))return toast('Bag is full');
  const idx=S.inv.indexOf(s);take(idx,1);
- S.eq[it.slot]={id:s.id,r:s.r,bonus:0,prog:0};
+ S.eq[slot]={id:s.id,r:s.r,bonus:0,prog:0};
  save();render()}
 function unequip(slot){const e=S.eq[slot];if(!e)return;if(addItem(e.id,e.r,1))return toast('Bag is full');delete S.eq[slot];save();render()}
 function usePotion(i){const s=S.inv[i],st=stats();S.hp=Math.min(st.maxHp,S.hp+ITEMS.potion.heal*rmult(s.r));take(i,1);save();render()}
@@ -83,79 +88,149 @@ function usePotionBest(){const i=S.inv.findIndex(s=>s.id==='potion');if(i<0)retu
 function sell(i,all){const s=S.inv[i],n=all?s.n:1;S.gold+=sellVal(s.id,s.r)*n;take(i,n);save();render()}
 
 // ---------- training ----------
-function trainFrac(id){const t=S.train;if(t&&t.id===id)return Math.min(1,t.f0+(Date.now()-t.start)/t.ms);return S.prog[id]||0}
+function trainFrac(id){const t=S.train[id];if(t)return Math.min(1,t.f0+(Date.now()-t.start)/t.ms);return S.prog[id]||0}
 function startTrain(id){
- if(S.train&&S.train.id===id)return;
- if(S.train)S.prog[S.train.id]=Math.min(.999,trainFrac(S.train.id));
+ if(S.train[id])return;
  const ms=trainMs(id),f0=S.prog[id]||0,now=Date.now();
- S.train={id,start:now,f0,ms,end:now+(1-f0)*ms};save();render()}
+ S.train[id]={start:now,f0,ms,end:now+(1-f0)*ms};save();render()}
+function stopTrain(id){if(!S.train[id])return;S.prog[id]=Math.min(.999,trainFrac(id));delete S.train[id];save();render()}
 function reroll(){const now=Date.now();if(S.shop.t-now<=60000)return;S.shop.t=Math.max(S.shop.t-60000,now+60000);save();render()}
 
 // ---------- runs ----------
+function newRun(kind,st,mobs){return{kind,s:st,wave:1,mobs:mobs||[],allies:[],dead:[],prompt:false,scen:null,merchant:null,dig:0,mobsMod:0,lootM:1,wait:800,pT:stats().atk,loot:[],gold:0,log:['Entered '+st.name+'.']}}
 function startRun(kind){
- if(Date.now()<S.cd)return;farm=null;
- const s=pick(STRUCTS.filter(x=>x.kind===kind));
- run={kind,s,wave:1,mobs:[],prompt:false,wait:800,pT:0,loot:[],gold:0,log:['Entered '+s.name+'.']};
- render();
+ if(run||Date.now()<S.cd)return;if(S.trip)return toast('You are traveling');farm=null;
+ run=newRun(kind,pick(STRUCTS.filter(x=>x.kind===kind)));render();
 }
+function startBoss(){
+ if(run||Date.now()<S.cd)return;if(S.trip)return toast('You are traveling');farm=null;
+ const b=BOSS;run=newRun('boss',{name:b.name+' Dungeon'},[{id:'boss',name:b.name,max:b.hp,hp:b.hp,dmg:b.dmg,mT:b.iv,iv:b.iv,gold:b.gold}]);render();
+}
+function startTrainer(){
+ const t=TOWNS.find(x=>x.id===S.loc);if(!t||run||S.trip)return;farm=null;
+ const m=1+.5*(S.tw[t.id]||0),hp=Math.round(300*m); // 10x a normal mob
+ run=newRun('trainer',{name:t.trainer+', trainer of '+t.name},[{id:'trainer',name:t.trainer,max:hp,hp,dmg:16*m,mT:1500,iv:1500,gold:0}]);run.town=t;render();
+}
+function travel(id){if(run||S.trip||S.loc===id)return;S.trip={to:id,end:Date.now()+60000};save();render()}
 function endRun(){
+ if(run&&run.kind==='trainer'){run=null;toast('You walked away from the duel.');save();render();return}
  if(run){let lost=0;for(const l of run.loot)lost+=addItem(l.id,l.r,l.n);if(lost)toast('Bag full: '+lost+' items lost');
   toast('Run ended. Wave '+(run.prompt?run.wave-1:run.wave)+', +'+run.gold+' gold');}
- run=null;S.cd=Date.now()+60000;save();render();
+ run=null;S.cd=Date.now()+60000;S.hp=stats().maxHp;save();render();
 }
-function continueRun(){if(!run)return;run.prompt=false;run.wait=600;render()}
 function die(){
- S.gold=Math.floor(S.gold/2);run=null;S.cd=Date.now()+60000;S.hp=Math.ceil(stats().maxHp*.25);
- toast('You died. Run loot lost and half your gold.');save();render();
+ const tr=run&&run.kind==='trainer';
+ if(!tr){S.gold=Math.floor(S.gold/2);S.cd=Date.now()+60000}
+ run=null;S.hp=Math.ceil(stats().maxHp*.25);
+ toast(tr?'You lost the duel.':'You died. Run loot lost and half your gold.');save();render();
 }
 function logR(t){run.log.unshift(t);run.log.length=Math.min(run.log.length,8)}
+// ----- effects -----
+function floatAt(el,txt,cls){if(!el)return;const b=el.getBoundingClientRect(),d=document.createElement('div');d.className='fl '+cls;d.textContent=txt;d.style.left=(b.left+b.width*(.25+Math.random()*.5))+'px';d.style.top=(b.top+b.height*.3)+'px';$('#fx').appendChild(d);setTimeout(()=>d.remove(),900)}
+function shake(){const m=$('main');if(!m)return;m.classList.remove('shake');void m.offsetWidth;m.classList.add('shake')}
+function hurtFx(txt,cls){const h=$('.hpw');floatAt(h,txt,cls);if(h){h.classList.add('pulse');setTimeout(()=>h.classList.remove('pulse'),180)}}
 // every 5 waves the rarity band shifts up one step; at the top band Eternal is 1x
 function rollWave(w,luck){
  const sh=Math.min(8,Math.floor((w-1)/5)),ws=[];let tot=0;
  for(let i=0;i<9;i++){const k=i-sh,wt=k<0?0:(1+(luck-1)*k*.25)/RSPAWN[k];ws.push(wt);tot+=wt}
  let x=Math.random()*tot;for(let i=0;i<9;i++){x-=ws[i];if(x<=0)return i}return sh;
 }
-function dropOne(st){const pool=Object.values(ITEMS).filter(i=>i.slot&&(!i.only||i.only===S.cls));pool.push(ITEMS.potion,ITEMS.potion);
- const it=pick(pool),r=rollWave(run.wave,st.luck);addRun(it.id,r,1);logR('Loot: '+RARITY[r]+' '+it.name)}
+function sellPool(){return Object.values(ITEMS).filter(i=>i.slot&&!i.boss&&(!i.only||i.only===S.cls))}
+function dropOne(st){const pool=sellPool();pool.push(ITEMS.potion,ITEMS.potion);
+ const it=pick(pool),r=rollWave(run.wave,st.luck*(run.lootM||1));addRun(it.id,r,1);logR('Loot: '+RARITY[r]+' '+it.name)}
 function addRun(id,r,n){const l=run.loot.find(x=>x.id===id&&x.r===r);l?l.n+=n:run.loot.push({id,r,n})}
-function spawn(id,w){const D=MOBS[id],hp=Math.round(D.hp*(1+.3*(w-1)));return{id,name:D.name,max:hp,hp,dmg:D.dmg*(1+.2*(w-1)),mT:1500+rnd(0,500)}}
+function spawn(id,w,st){const D=MOBS[id],hp=Math.round(D.hp*(1+.3*(w-1)));return{id,name:D.name,max:hp,hp,dmg:D.dmg*(1+.2*(w-1)),mT:1500+rnd(0,500),iv:1500,gold:Math.round(D.gold*(1+.15*(w-1))*st.jobM),remain:D.remain}}
+function summon(r){
+ if(S.cls!=='necromancer'||!r.dead.length)return;
+ const src=r.dead.slice().sort(()=>Math.random()-.5).slice(0,3);
+ r.allies=src.map(d=>({name:'Risen '+d.name,max:Math.round(d.max*.5),hp:Math.round(d.max*.5),dmg:d.dmg,aT:1500}));
+ logR('You raise '+r.allies.length+' fallen mobs!');shake();
+}
+function makeScen(){
+ const sc=pick(SCEN),o=sc.o.map(x=>({n:x[0],fx:x[1]}));
+ if(Math.random()<1/25)o.push({n:pick(['Secret path','Secret cave','Secret room']),fx:{secret:1,loot:10}});
+ return{t:sc.t,o};
+}
+function chooseOpt(i){
+ const r=run;if(!r||!r.scen)return;const o=r.scen.o[i],f=o.fx;
+ r.mobsMod=f.mobs||0;r.lootM=f.loot||1;
+ if(f.heal){const mx=stats().maxHp;S.hp=Math.min(mx,S.hp+mx*f.heal)}
+ logR(f.secret?'You found a '+o.n.toLowerCase()+'! Mobs drop 10x better loot.':'You chose: '+o.n);
+ r.prompt=false;r.scen=null;r.wait=600;render();
+}
+function merchantBuy(i){const e=run.merchant.items[i];if(e.sold||S.gold<e.p)return;
+ if(addItem(e.id,e.r))return toast('Bag is full');S.gold-=e.p;e.sold=true;render()}
+function leaveMerchant(){run.merchant=null;run.wave++;run.wait=800;render()}
 function encounter(st){
- const r=run,w=r.wave;let type='mob';
- if(r.kind==='loot'){const x=Math.random();type=x<.3?'trap':x<.5?'chest':'mob'}
+ const r=run,w=r.wave,k=r.kind;let type='mob';
+ if(k==='explore'){
+  if(Math.random()<1/50){
+   const pool=sellPool(),items=[];
+   for(let i=0;i<rnd(10,20);i++){const it=pick(pool);items.push({id:it.id,r:Math.min(8,2+Math.floor(-Math.log(1-Math.random())*1.3)),p:buyPrice(it.id,rnd(0,1)),sold:false})}
+   r.merchant={items};logR('A traveling merchant waves you over!');toast('A traveling merchant!');render();return}
+  const x=Math.random();type=x<.25?'trap':x<.45?'chest':x<.55?'treasure':'mob'}
+ if(k==='raid')type=Math.random()<.6?'mob':'house';
  if(type==='trap'){
   if(Math.random()<st.dodge)logR('You dodge a trap.');
-  else{const d=Math.max(1,Math.round(8*(1+.2*w)-st.resist));S.hp-=d;logR('Trap! -'+d+' HP')}
+  else{const d=Math.max(1,Math.round(8*(1+.2*w)-st.resist));S.hp-=d;hurtFx('-'+d,'hurt');logR('Trap! -'+d+' HP')}
   r.wave++;r.wait=1200;return}
  if(type==='chest'){dropOne(st);if(Math.random()<.5)dropOne(st);logR('Opened a chest.');r.wave++;r.wait=1200;return}
- const n=r.kind==='mob'?Math.min(8,rnd(2,3)+Math.floor((w-1)/5)):1;
- r.mobs=[];for(let i=0;i<n;i++)r.mobs.push(spawn(pick(r.s.mobs),w));
- r.pT=st.atk;if(n>1)logR('Wave '+w+': '+n+' enemies appear!');
+ if(type==='house'){const g=Math.round(rnd(5,15)*(1+.15*w)*st.jobM);S.gold+=g;r.gold+=g;dropOne(st);if(Math.random()<.5)dropOne(st);logR('Looted a house: +'+g+' gold');r.wave++;r.wait=1200;return}
+ if(type==='treasure'){r.dig=30000;logR('You found a buried treasure. Digging for 30 seconds...');return}
+ const n=k==='mob'?Math.max(1,Math.min(8,rnd(2,3)+Math.floor((w-1)/5)+(r.mobsMod||0))):k==='raid'?Math.min(6,rnd(2,3)+Math.floor((w-1)/6)):1;
+ r.mobs=[];for(let i=0;i<n;i++)r.mobs.push(spawn(pick(r.s.mobs),w,st));
+ r.pT=st.atk;summon(r);if(n>1)logR((k==='mob'?'Wave ':'Room ')+w+': '+n+' enemies appear!');
 }
 function kill(m,st){
- const r=run,D=MOBS[m.id],g=Math.round(D.gold*(1+.15*(r.wave-1))*st.jobM);
- S.gold+=g;r.gold+=g;logR(m.name+' slain. +'+g+' gold');
- if(S.opts.loot&&Math.random()<.4+.02*S.sk.looting){dropOne(st);if(Math.random()<.03*S.sk.looting)dropOne(st)}
- if(S.opts.remains){const n=1+(Math.random()<.3?1:0);addRun(D.remain,0,n);logR('Remains: '+n+' '+ITEMS[D.remain].name)}
+ const r=run;S.gold+=m.gold;r.gold+=m.gold;
+ if(r.kind==='trainer'){logR('Trainer defeated!');return}
+ logR(m.name+' slain. +'+m.gold+' gold');if(r.kind==='boss')return;
+ if(S.cls==='necromancer'){r.dead.push({name:m.name,max:m.max,dmg:m.dmg});if(r.dead.length>20)r.dead.shift()}
+ const lm=r.lootM||1;
+ if(S.opts.loot&&Math.random()<Math.min(1,(.4+.02*S.sk.looting)*lm)){dropOne(st);if(Math.random()<.03*S.sk.looting)dropOne(st)}
+ if(S.opts.remains){const n=1+(Math.random()<.3?1:0);addRun(m.remain,0,n);logR('Remains: '+n+' '+ITEMS[m.remain].name)}
 }
 function waveClear(){
  const r=run;
- if(r.kind==='mob')for(const sl of['reld','relh']){const e=S.eq[sl];if(!e)continue;
+ if(r.kind==='trainer'){const t=r.town;S.sk[t.skill]+=5;S.tw[t.id]=(S.tw[t.id]||0)+1;
+  toast(t.trainer+' taught you: '+SKILLS.find(x=>x.id===t.skill).name+' +5 levels!');run=null;save();render();return}
+ if(r.kind==='boss'){if(Math.random()<BOSS.chance){addRun(BOSS.drop,0,1);toast("The Goblin Lord dropped Goblin Lord's Ear!")}
+  toast('Boss defeated!');endRun();return}
+ if(r.kind==='mob')for(const sl of['relic1','relic2','relic3']){const e=S.eq[sl];if(!e||ITEMS[e.id].type==='regen')continue;
   e.prog=(e.prog||0)+1;if(e.prog>=10+Math.round((e.bonus||0)*100)){e.prog=0;e.bonus=Math.round(((e.bonus||0)+.01)*100)/100;logR(ITEMS[e.id].name+' grew +0.01x')}}
- r.wave++;r.mobs=[];
- if(r.kind==='mob'){r.prompt=true;toast('Wave '+(r.wave-1)+' cleared. Go on or stop?');render()}
+ r.wave++;r.mobs=[];r.allies=[];r.lootM=1;r.mobsMod=0;
+ if(r.kind==='mob'){r.prompt=true;r.scen=makeScen();toast('Wave '+(r.wave-1)+' cleared. Choose your way.');render()}
  else r.wait=900;
 }
+function strike(m,d,st,crit){
+ const r=run,i=r.mobs.indexOf(m),el=$('#rmobs');
+ m.hp-=d;m.hit=Date.now();
+ if(el)floatAt(el.children[i],fx(d)+(crit?'!':''),crit?'crit':'dmg');
+ if(m.hp<=0){kill(m,st);r.mobs.splice(r.mobs.indexOf(m),1);if(!r.mobs.length){waveClear();return true}}
+ return false;
+}
 function stepRun(dt,st){
- const r=run;if(r.prompt)return;
+ const r=run;if(r.prompt||r.merchant)return;
+ if(r.dig>0){r.dig-=dt;if(r.dig<=0){r.dig=0;for(let i=0;i<5;i++)dropOne(st);logR('Dug up the treasure: 5 pieces of loot!');r.wave++;r.wait=1200}return}
  if(!r.mobs.length){r.wait-=dt;if(r.wait<=0)encounter(st);return}
  r.pT-=dt;
- if(r.pT<=0){const m=r.mobs[0];let d=st.dmg;const c=Math.random()<st.crit;if(c)d*=st.critMul;
-  m.hp-=d;r.pT+=st.atk;if(c)logR('Critical hit! '+fx(d));
-  if(m.hp<=0){kill(m,st);r.mobs.shift();if(!r.mobs.length){waveClear();return}}}
- for(const m of r.mobs){m.mT-=dt;
-  if(m.mT<=0){m.mT+=1500;
-   if(Math.random()<st.dodge)logR('You dodged the '+m.name+'.');
-   else S.hp-=Math.max(1,m.dmg-st.resist)}}
+ if(r.pT<=0){const m=r.mobs[0];let d=st.dmg;const c=Math.random()<st.crit;if(c){d*=st.critMul;shake();logR('Critical hit! '+fx(d))}
+  r.pT+=st.atk;if(strike(m,d,st,c))return}
+ for(const a of r.allies){a.aT-=dt;if(a.aT<=0){a.aT+=1500;const m=r.mobs[0];if(!m)break;if(strike(m,a.dmg,st,false))return}}
+ for(const m of r.mobs.slice()){m.mT-=dt;
+  if(m.mT<=0){m.mT+=m.iv||1500;
+   const al=r.allies.filter(a=>a.hp>0);
+   if(al.length&&Math.random()<.5)pick(al).hp-=m.dmg;
+   else if(Math.random()<st.dodge){logR('You dodged the '+m.name+'.');hurtFx('Dodge','dodge')}
+   else{const d=Math.max(1,m.dmg-st.resist);S.hp-=d;hurtFx('-'+fx(d),'hurt');if(r.kind==='boss'||r.kind==='trainer')shake()}}}
+ r.allies=r.allies.filter(a=>a.hp>0);
+}
+function runPanel(){
+ const r=run;
+ return`<div class="row"><div class="grow"><b>${r.s.name}</b> <span class="dim" id="rwave"></span><div id="rmobs" style="margin-top:.4rem"></div><div id="rallies" class="dim"></div></div><button class="alt" onclick="endRun()">Stop run</button></div>
+ ${r.prompt&&r.scen?`<div class="row"><div class="grow"><b>Wave ${r.wave-1} cleared.</b> ${r.scen.t}</div>${r.scen.o.map((o,i)=>`<button ${o.fx.secret?'style="background:#f0c060"':''} onclick="chooseOpt(${i})">${o.n}</button>`).join('')}<button class="alt" onclick="endRun()">Stop run</button></div>`:''}
+ ${r.merchant?`<h3>Traveling merchant</h3>${r.merchant.items.map((e,i)=>`<div class="row"><div class="grow">${iname(e.id,e.r)}<div class="dim">${desc(e.id,e.r)}</div></div><span class="gold">${e.p}</span><button ${e.sold||S.gold<e.p?'disabled':''} onclick="merchantBuy(${i})">${e.sold?'Sold':'Buy'}</button>${rbadge(e.r)}</div>`).join('')}<div class="row"><button class="alt" onclick="leaveMerchant()">Leave the merchant</button></div>`:''}
+ <h3>Run loot (kept if you survive)</h3><div id="rloot" class="log" style="min-height:60px"></div><h3>Log</h3><div id="rlog" class="log"></div>`;
 }
 
 // ---------- farming ----------
@@ -182,8 +257,8 @@ function doQuest(q){const x=S.quests[q];if(have(x.id)<x.n)return;let need=x.n;
  S.gold+=x.reward;S.quests[q]=genQuest();toast('Quest done: +'+x.reward+' gold');save();render()}
 
 // ---------- rendering ----------
-const spr=(i,s)=>`<div class="spr" style="--i:${i}${s?';--s:'+s+'px':''}"></div>`;
-const perks=cls=>Object.entries(CLASSES[cls].m).map(([k,v])=>`<span class="chip" style="--c:${CLASSES[cls].color}">${MLABEL[k]} ${v}x</span>`).join('');
+const spr=(i,s)=>`<div class="spr${i>=6?' x':''}" style="--i:${i}${s?';--s:'+s+'px':''}"></div>`;
+const perks=cls=>{const c=CLASSES[cls];return Object.entries(c.m).map(([k,v])=>`<span class="chip" style="--c:${c.color}">${MLABEL[k]} ${v}x</span>`).join('')+(c.special?`<span class="chip" style="--c:${c.color}">Special: ${c.special}</span>`:'')};
 function pickClass(){
  $('#app').innerHTML=`<main style="padding-bottom:2rem"><h2>Choose your role</h2><div class="cls">${Object.entries(CLASSES).map(([k,c])=>`<div class="card" style="--c:${c.color}">${spr(c.i)}<h3 style="margin:0;color:${c.color}">${c.name}</h3><div>${perks(k)}</div><button onclick="choose('${k}')">Play as ${c.name}</button></div>`).join('')}</div></main>`;
 }
@@ -204,28 +279,30 @@ function render(){
 }
 
 const VIEW={
- train(){const st=stats();let h='<h2>Train</h2><p class="dim">One skill at a time. Each level takes longer, scaled by your total levels. Focus speeds up everything else.</p>';
+ train(){const st=stats();let h='<h2>Train</h2><p class="dim">Skills keep training in the background and start the next level automatically. Each skill has its own base time (10s for the weakest, 25s for the best), and every level takes longer. Focus speeds up everything else.</p>';
   let cat='';
   for(const s of SKILLS){
    if(s.cat!==cat){cat=s.cat;h+=`<h3>${cat}</h3>`}
-   const act=S.train&&S.train.id===s.id,f=trainFrac(s.id);
-   const bar=act?`<div class="bar amber"><i data-f0="${S.train.f0}" data-t0="${S.train.start}" data-ms="${S.train.ms}"></i></div>`:`<div class="bar amber"><i style="width:${f*100}%"></i></div>`;
-   h+=`<div class="row"><div class="grow"><b>${s.name}</b> Lv ${S.sk[s.id]}<div class="dim">${s.desc}</div>${bar}</div>
-   ${act?timer(S.train.end):`<span class="dim">${fmt((1-f)*trainMs(s.id))}</span><button onclick="startTrain('${s.id}')">${S.train?'Switch':'Train'}</button>`}</div>`}
+   const t=S.train[s.id],act=!!t,f=trainFrac(s.id);
+   const bar=act?`<div class="bar amber"><i data-f0="${t.f0}" data-t0="${t.start}" data-ms="${t.ms}"></i></div>`:`<div class="bar amber"><i style="width:${f*100}%"></i></div>`;
+   h+=`<div class="row"><div class="grow"><b>${s.name}</b> Lv ${S.sk[s.id]} <span class="dim">(rank ${s.rank+1}/${SKILLS.length}, base ${s.base.toFixed(1)}s)</span><div class="dim">${s.desc}</div>${bar}</div>
+   ${act?`${timer(t.end)}<button class="alt" onclick="stopTrain('${s.id}')">Pause</button>`:`<span class="dim">${fmt((1-f)*trainMs(s.id))}</span><button onclick="startTrain('${s.id}')">Train</button>`}</div>`}
   return h},
  jobs(){
-  let h=`<h2>Jobs</h2><div class="sub">${[['mob','Mob hunt'],['loot','Loot structures'],['farm','Farm']].map(([k,v])=>`<button class="alt ${sub===k?'on':''}" onclick="sub='${k}';render()">${v}</button>`).join('')}</div>`;
+  const SUBS=[['mob','Mob hunt'],['explore','Explore'],['raid','Raid villages'],['boss','Boss dungeon'],['farm','Farm']];
+  let h=`<h2>Jobs</h2><div class="sub">${SUBS.map(([k,v])=>`<button class="alt ${sub===k?'on':''}" onclick="sub='${k}';render()">${v}</button>`).join('')}</div>`;
   if(sub==='farm'){
    h+=`<p class="dim">Farm safely. Productivity speeds it up, houses raise yields. Sell goods in the Bag.</p>`;
    h+=FARM.map(f=>`<div class="row"><div class="grow"><b>${ITEMS[f].name}</b> <span class="dim">sells for ${ITEMS[f].price}</span>${farm&&farm.res===f?prog(farm.start,farm.end):''}</div>${farm&&farm.res===f?`${timer(farm.end)}<button class="alt" onclick="stopFarm()">Stop</button>`:`<button onclick="startFarm('${f}')">Farm</button>`}</div>`).join('');
    return h}
-  const kind=sub;
-  h+=`<p class="dim">${kind==='mob'?'Fight waves of mobs from a random structure. Each wave is harder.':'Loot an abandoned structure: traps, chests and wild mobs.'} Dying loses all run loot and half your gold.</p>`;
+  const info={mob:'Fight waves of mobs from a random structure. Each wave is harder, and after every wave you choose which way to go.',
+   explore:'Explore a random structure: traps, chests, buried treasure (a 30 second dig for 5 loot), wild mobs and sometimes a traveling merchant.',
+   raid:'Raid a village: fight guards and loot houses.',
+   boss:"Face the Goblin Lord alone. He is 50x as hard as a normal mob and can drop Goblin Lord's Ear, a relic with permanent 3x health regen."};
+  h+=`<p class="dim">${info[sub]} Dying loses all run loot and half your gold.</p>`;
   h+=`<div class="row"><label><input type="checkbox" ${S.opts.loot?'checked':''} onchange="S.opts.loot=this.checked"> Get loot</label><label><input type="checkbox" ${S.opts.remains?'checked':''} onchange="S.opts.remains=this.checked"> Get mob remains</label></div>`;
-  if(!run){h+=`<div class="row"><div class="grow">Run cooldown: ${timer(S.cd)}</div><button id="startbtn" onclick="startRun('${kind}')">Start run</button></div>`;return h}
-  h+=`<div class="row"><div class="grow"><b>${run.s.name}</b> <span class="dim" id="rwave"></span><div id="rmobs" style="margin-top:.4rem"></div></div><button class="alt" onclick="endRun()">Stop run</button></div>
-  ${run.prompt?`<div class="row"><div class="grow"><b>Wave ${run.wave-1} cleared.</b> Go on to wave ${run.wave} or stop and keep your loot?</div><button onclick="continueRun()">Go on</button><button class="alt" onclick="endRun()">Stop run</button></div>`:''}
-  <h3>Run loot (kept if you survive)</h3><div id="rloot" class="log" style="min-height:60px"></div><h3>Log</h3><div id="rlog" class="log"></div>`;
+  if(run)return h+runPanel();
+  h+=`<div class="row"><div class="grow">Run cooldown: ${timer(S.cd)}</div><button id="startbtn" onclick="${sub==='boss'?'startBoss()':`startRun('${sub}')`}">Start run</button></div>`;
   return h},
  shop(){
   let h=`<h2>Shop</h2><div class="row"><div class="grow">New stock in ${timer(S.shop.t)}<div class="dim">Stock refreshes every 10 minutes. Each reroll click takes 1 minute off the wait, down to 1 minute left. Bargaining lowers prices; shop fame improves stock.</div></div><button id="rerollbtn" ${S.shop.t-Date.now()<=60000?'disabled':''} onclick="reroll()">Reroll</button></div>`;
@@ -233,8 +310,15 @@ const VIEW={
    h+=`<div class="row"><div class="grow">${iname(e.id,e.r)}<div class="dim">${desc(e.id,e.r)}</div></div><span class="gold">${p}</span><button ${e.sold||S.gold<p?'disabled':''} onclick="buy(${i})">${e.sold?'Sold':'Buy'}</button>${rbadge(e.r)}</div>`});
   return h},
  town(){const next=S.house+1,max=next>=HOUSES.length;
-  return`<h2>Town</h2><div class="row"><div class="grow"><b>${HOUSES[S.house]}</b><div class="dim">Skill XP x${(1+.15*S.house).toFixed(2)} (faster training). Job XP x${(1+.12*S.house).toFixed(2)} (more gold, bigger farm yields).</div></div></div>
-  ${max?'<p>You own the finest home in the land.</p>':`<div class="row"><div class="grow">Next: <b>${HOUSES[next]}</b></div><span class="gold">${houseCost(next)}</span><button ${S.gold<houseCost(next)?'disabled':''} onclick="buyHouse()">Buy</button></div>`}`},
+  const here=S.loc==='home'?'Home':TOWNS.find(t=>t.id===S.loc).name,dest=S.trip&&(S.trip.to==='home'?'Home':TOWNS.find(t=>t.id===S.trip.to).name);
+  let h=`<h2>Town</h2><div class="row"><div class="grow"><b>${HOUSES[S.house]}</b><div class="dim">Skill XP x${(1+.15*S.house).toFixed(2)} (faster training). Job XP x${(1+.12*S.house).toFixed(2)} (more gold, bigger farm yields).</div></div></div>
+  ${max?'<p>You own the finest home in the land.</p>':`<div class="row"><div class="grow">Next: <b>${HOUSES[next]}</b></div><span class="gold">${houseCost(next)}</span><button ${S.gold<houseCost(next)?'disabled':''} onclick="buyHouse()">Buy</button></div>`}`;
+  h+=`<h3>Travel</h3><div class="row"><div class="grow">You are in <b>${here}</b>.${S.trip?` Traveling to <b>${dest}</b>: ${timer(S.trip.end)}`:''}<div class="dim">Each trip takes 1 minute. Every town has a trainer who raises one skill by 5 levels if you beat him.</div></div></div>`;
+  if(run&&run.kind==='trainer')h+=runPanel();
+  h+=`<div class="row"><div class="grow"><b>Home</b></div><button ${run||S.trip||S.loc==='home'?'disabled':''} onclick="travel('home')">Travel (1:00)</button></div>`;
+  h+=TOWNS.map(t=>{const w=S.tw[t.id]||0,sk=SKILLS.find(x=>x.id===t.skill).name;
+   return`<div class="row"><div class="grow"><b>${t.name}</b><div class="dim">Trainer ${t.trainer}: +5 ${sk} levels. 10x as hard as a normal mob${w?`, beaten ${w}x (tougher each time)`:''}.</div></div>${S.loc===t.id&&!S.trip?`<button ${run?'disabled':''} onclick="startTrainer()">Fight trainer</button>`:`<button ${run||S.trip||S.loc===t.id?'disabled':''} onclick="travel('${t.id}')">Travel (1:00)</button>`}</div>`}).join('');
+  return h},
  quests(){return'<h2>Quests</h2>'+S.quests.map((q,i)=>{const h=have(q.id);
   return`<div class="row"><div class="grow"><b>${q.who}</b> needs ${q.n} ${ITEMS[q.id].name}<div class="dim">You have ${h}. Reward ${q.reward} gold.</div></div><button ${h<q.n?'disabled':''} onclick="doQuest(${i})">Turn in</button></div>`}).join('')},
  craft(){let h='<h2>Craft</h2><p class="dim">Merge 5 identical items into one of the next rarity. Failure destroys the 5. Craft sense adds +1% per level.</p>';
@@ -253,8 +337,8 @@ const VIEW={
   let h='<h2>Book</h2><details open><summary>Classes</summary>'+Object.entries(CLASSES).map(([k,c])=>`<p>${spr(c.i,48)}<b style="color:${c.color}">${c.name}</b><br>${perks(k)}</p>`).join('')+'<p class="dim">Weapon Strength: weapon damage. Elemental Strength: wand and spell damage. Luck: loot rarity. Health Regen: regen speed. Physical Strength: crit chance (base 1/15, times the multiplier). Speed: attack speed.</p></details>';
   h+='<details><summary>Skills</summary>'+SKILLS.map(s=>`<p><b>${s.name}</b> (${s.cat}): ${s.desc}</p>`).join('')+'</details>';
   h+='<details><summary>Items</summary>'+Object.values(ITEMS).filter(i=>!i.mat).map(i=>`<p><b>${i.name}</b>: ${desc(i.id,0)}</p>`).join('')+'<p class="dim">Rarity multiplies stats by 1.7x per tier: '+RARITY.join(', ')+'.</p><p class="dim">Relics gain +0.01x every 10 mob-hunt waves cleared, then 11, 12 and so on. Unequipping a relic keeps nothing: the bonus stays on the equipped relic only.</p></details>';
-  h+='<details><summary>Structures and mobs</summary>'+STRUCTS.map(s=>`<p><b>${s.name}</b> (${s.kind==='mob'?'mob hunt':'loot'}): ${s.mobs.map(m=>MOBS[m].name+' drops '+ITEMS[MOBS[m].remain].name).join(', ')}</p>`).join('')+'</details>';
-  h+='<details><summary>Rules</summary><p>Stopping or dying starts a 1 minute run cooldown. Dying loses the run loot and half your gold (rounded down).</p></details>';
+  h+='<details><summary>Structures and mobs</summary>'+STRUCTS.map(s=>`<p><b>${s.name}</b> (${({mob:'mob hunt',explore:'explore',raid:'raid'})[s.kind]}): ${s.mobs.map(m=>MOBS[m].name+' drops '+ITEMS[MOBS[m].remain].name).join(', ')}</p>`).join('')+'</details>';
+  h+='<details><summary>Rules</summary><p>Stopping or dying starts a 1 minute run cooldown. Dying loses the run loot and half your gold (rounded down). Finishing a run fully heals you.</p><p>Boss dungeon: the Goblin Lord (50x a normal mob) can drop Goblin Lord\'s Ear, a relic with permanent 3x health regen. Towns: each takes 1 minute to reach, and its trainer (10x a normal mob) raises one skill by 5 levels.</p></details>';
   return h}
 };
 
@@ -265,11 +349,13 @@ function upd(){
  const hb=$('#hpbar');if(hb){hb.style.width=Math.max(0,S.hp/st.maxHp*100)+'%';$('#hptx').textContent=Math.ceil(S.hp)+'/'+st.maxHp}
  document.querySelectorAll('[data-cd]').forEach(e=>{const t=e.dataset.cd-now;e.textContent=t>0?fmt(t):'ready'});
  document.querySelectorAll('[data-s]').forEach(e=>{e.style.width=Math.min(100,(now-e.dataset.s)/(e.dataset.e-e.dataset.s)*100)+'%'});
- if(run&&tab==='jobs'&&$('#rlog')){
-  $('#rwave').textContent=(run.kind==='mob'?'Wave ':'Room ')+run.wave;
-  $('#rmobs').innerHTML=run.mobs.length?run.mobs.map(m=>`<div>${m.name} ${Math.max(0,Math.ceil(m.hp))}/${m.max}<div class="bar red"><i style="width:${Math.max(0,m.hp/m.max*100)}%"></i></div></div>`).join(''):(run.prompt?'':'Searching...');
-  $('#rloot').innerHTML=run.loot.length?run.loot.map(l=>`${iname(l.id,l.r)} x${l.n}`).join(', '):'Nothing yet';
-  $('#rlog').innerHTML=run.log.join('<br>');
+  if(run&&$('#rlog')){
+  const r=run;
+  $('#rwave').textContent=r.kind==='mob'?'Wave '+r.wave:(r.kind==='explore'||r.kind==='raid')?'Room '+r.wave:'';
+  $('#rmobs').innerHTML=r.dig>0?'Digging up buried treasure... '+fmt(r.dig):r.mobs.length?r.mobs.map(m=>`<div class="${now-(m.hit||0)<160?'hit':''}">${m.name} ${Math.max(0,Math.ceil(m.hp))}/${m.max}<div class="bar red"><i style="width:${Math.max(0,m.hp/m.max*100)}%"></i></div></div>`).join(''):(r.prompt||r.merchant?'':'Searching...');
+  $('#rallies').textContent=r.allies.length?'Allies: '+r.allies.map(a=>a.name+' '+Math.max(0,Math.ceil(a.hp))+'/'+a.max).join(', '):'';
+  $('#rloot').innerHTML=r.loot.length?r.loot.map(l=>`${iname(l.id,l.r)} x${l.n}`).join(', '):'Nothing yet';
+  $('#rlog').innerHTML=r.log.join('<br>');
  }
  const sb=$('#startbtn');if(sb)sb.disabled=now<S.cd;
  const rb=$('#rerollbtn');if(rb)rb.disabled=S.shop.t-now<=60000;
@@ -279,12 +365,23 @@ let last=Date.now();
 function loop(){
  if(!S)return;const now=Date.now(),dt=Math.min(now-last,1000);last=now;const st=stats();
  S.hp=Math.min(st.maxHp,S.hp+st.regen*dt/1000);
- if(S.train&&now>=S.train.end){const id=S.train.id;S.sk[id]++;S.prog[id]=0;S.train=null;toast(SKILLS.find(s=>s.id===id).name+' is now level '+S.sk[id]);save();render()}
+ let lv=0;
+ for(const id in S.train){const t=S.train[id];let n=0;
+  while(now>=t.end&&n++<100){S.sk[id]++;lv++;t.start=t.end;t.f0=0;t.ms=trainMs(id);t.end=t.start+t.ms;S.prog[id]=0}
+  if(n)toast(SKILLS.find(x=>x.id===id).name+' is now level '+S.sk[id])}
+ if(lv){save();if(tab==='train'||tab==='bag')render()}
+ if(S.trip&&now>=S.trip.end){S.loc=S.trip.to;S.trip=null;toast('You arrived.');if(tab==='town')render()}
  if(now>=S.shop.t){genShop();if(tab==='shop')render()}
  if(farm&&now>=farm.end){const n=Math.max(1,Math.round(rnd(1,3)*st.jobM));if(addItem(farm.res,0,n))toast('Bag is full');farm.start=now;farm.end=now+farmMs();if(tab==='bag'||tab==='quests'||tab==='craft')render()}
- if(run){stepRun(dt,st);if(S.hp<=0)die()}
+ if(run){stepRun(dt,st);if(run&&S.hp<=0)die()}
  upd();
 }
-S=load();if(S){S.prog=S.prog||{};if(S.train&&!S.train.ms)S.train={id:S.train.id,start:S.train.start,f0:0,ms:S.train.end-S.train.start,end:S.train.end}}
+S=load();
+if(S){S.prog=S.prog||{};S.tw=S.tw||{};S.loc=S.loc||'home';
+ SKILLS.forEach(x=>{if(S.sk[x.id]===undefined)S.sk[x.id]=0});
+ if(S.train&&S.train.id){const t=S.train;S.train={[t.id]:{start:t.start,f0:t.f0||0,ms:t.ms||(t.end-t.start),end:t.end}}}
+ S.train=S.train||{};
+ for(const [a,b] of [['reld','relic1'],['relh','relic2']])if(S.eq[a]){S.eq[S.eq[b]?'relic3':b]=S.eq[a];delete S.eq[a]}
+ if(!CLASSES[S.cls])S=null}
 render();
 setInterval(loop,100);setInterval(save,5000);
