@@ -38,3 +38,17 @@ label{cursor:pointer}
 .rn{paint-order:stroke fill;font-weight:700}
 .rar{margin-left:auto;min-width:84px;text-align:right}
 #rmobs>div{margin-bottom:.35rem}
+.sub{flex-wrap:wrap}
+.spr.x{background:none;position:relative;border:2px dashed var(--line)}
+.spr.x::before,.spr.x::after{content:'';position:absolute;left:50%;top:6%;width:12%;height:88%;background:#e02a2a;transform:translateX(-50%) rotate(45deg)}
+.spr.x::after{transform:translateX(-50%) rotate(-45deg)}
+#fx{position:fixed;inset:0;pointer-events:none;z-index:20;overflow:hidden}
+.fl{position:fixed;font-family:'Pixelify Sans',monospace;font-weight:700;font-size:1.2rem;transform:translateX(-50%);text-shadow:0 0 3px #000,0 1px 0 #000;animation:flt .9s ease-out forwards}
+.fl.dmg{color:#fff}.fl.crit{color:#ffd24a;font-size:1.8rem}.fl.hurt{color:#ff5a4a}.fl.dodge{color:#7fd8ff}
+@keyframes flt{from{opacity:1;margin-top:0}to{opacity:0;margin-top:-48px}}
+#rmobs>div.hit{animation:hitf .16s}
+@keyframes hitf{0%{filter:brightness(2.4) saturate(2);transform:translateX(3px)}100%{filter:none;transform:none}}
+.hpw.pulse .bar{box-shadow:0 0 8px #f33}
+main.shake{animation:shk .22s}
+@keyframes shk{0%,100%{transform:translate(0)}25%{transform:translate(-3px,1px)}50%{transform:translate(3px,-2px)}75%{transform:translate(-2px,-1px)}}
+@media(prefers-reduced-motion:reduce){main.shake,#rmobs>div.hit,.fl{animation:none}}
