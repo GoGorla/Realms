@@ -21,7 +21,7 @@ const CLASSES={
  warlock:{name:'Warlock',i:7,color:'#d04fd0',m:{all:5,regen:.5,luck:.25,speed:.75}},
  assassin:{name:'Assassin',i:8,color:'#9a9ab0',m:{speed:5,dodge:5,range:2,regen:.25,health:.25}},
  alchemist:{name:'Alchemist',i:9,color:'#3fd0c0',m:{splash:5,regen:3,health:.5,speed:.5}},
- necromancer:{name:'Necromancer',i:10,color:'#7affb0',m:{health:.5,all:.5},special:'Summons up to 3 mobs from past waves (0.5x health) to fight for you'}
+ necromancer:{name:'Necromancer',i:10,color:'#7affb0',m:{health:.5,all:.5},special:'Summons 3 mobs from the last round (0.25x health) to fight for you'}
 
 };
 
@@ -60,6 +60,8 @@ add('potion',{name:'Health Potion',slot:'potion',heal:40,price:25});
 add('relic_dmg',{name:'Damage Relic',slot:'relic',type:'dmg',price:300});
 add('relic_hp',{name:'Health Relic',slot:'relic',type:'hp',price:300});
 add('goblin_lord_ear',{name:"Goblin Lord's Ear",slot:'relic',type:'regen',price:500,boss:true});
+add('spirit_bone',{name:'Spirit Bone',slot:'spirit',type:'bone',price:800,boss:true});
+add('undead_spirit',{name:'Undead Spirit',slot:'spirit',type:'undead',price:800,boss:true});
 add('backpack',{name:'Backpack',slot:'pack',slots:10,price:200});
 // materials: remains + farm goods
 const MATS={zombie_flesh:['Zombie Flesh',4],bone:['Bone',3],witch_brew:['Witch Brew',8],spider_silk:['Spider Silk',4],goblin_ear:['Goblin Ear',5],slime_goo:['Slime Goo',3],bandit_mask:['Bandit Mask',7],ghoul_claw:['Ghoul Claw',10],wraith_dust:['Wraith Dust',12],troll_tooth:['Troll Tooth',18],guard_badge:['Guard Badge',6],food:['Food',2],stone:['Stone',3],wood:['Wood',2]};
@@ -76,29 +78,31 @@ const MOBS={
  wraith:{name:'Wraith',hp:55,dmg:11,gold:10,remain:'wraith_dust'},troll:{name:'Troll',hp:120,dmg:12,gold:15,remain:'troll_tooth'},
  guard:{name:'Village Guard',hp:45,dmg:6,gold:7,remain:'guard_badge'}
 };
-const STRUCTS=[
- {kind:'mob',name:'Graveyard',mobs:['zombie','skeleton','ghoul']},
- {kind:'mob',name:'Witch Hut',mobs:['witch','spider','slime']},
- {kind:'mob',name:'Goblin Camp',mobs:['goblin','bandit','troll']},
- {kind:'mob',name:'Haunted Crypt',mobs:['skeleton','wraith','ghoul']},
- {kind:'mob',name:'Murky Swamp',mobs:['slime','witch','zombie']},
+const BOSSES={goblin_lord:{name:'Goblin Lord',drop:'goblin_lord_ear'},skeleton_chief:{name:'Skeleton Chief',drop:'spirit_bone'},undead_spirit:{name:'The Spirit of the Undead',drop:'undead_spirit'}};
+const BOSSSTAT={hp:1500,dmg:35,iv:2000,gold:250,chance:.5}; // 50x a normal mob
+const REALMS=[{id:'plains',name:'Plains',desc:'Rolling grasslands haunted by goblins, bandits and the restless dead.',
+ trainer:{name:'Lucky Finn',skill:'luck'},
+ structs:[
+ {kind:'mob',name:'Goblin Camp',mobs:['goblin','bandit','troll'],boss:'goblin_lord'},
+ {kind:'mob',name:'Bone Crypt',mobs:['skeleton','ghoul','wraith'],boss:'skeleton_chief'},
+ {kind:'mob',name:'Restless Graveyard',mobs:['zombie','ghoul','wraith'],boss:'undead_spirit'},
  {kind:'explore',name:'Abandoned Mine',mobs:['spider','goblin','slime']},
  {kind:'explore',name:'Ruined Tower',mobs:['skeleton','wraith','bandit']},
  {kind:'explore',name:'Sunken Temple',mobs:['zombie','ghoul','witch']},
  {kind:'explore',name:'Forgotten Cabin',mobs:['bandit','spider','zombie']},
  {kind:'raid',name:'Farming Village',mobs:['guard','bandit']},
  {kind:'raid',name:'Mining Hamlet',mobs:['guard','goblin']},
- {kind:'raid',name:'Riverside Port',mobs:['guard','bandit','goblin']}
-];
+ {kind:'raid',name:'Riverside Port',mobs:['guard','bandit','goblin']}]}];
+
 const HOUSES=['Hut','Small House','Cabin','Family House','Manor','Mansion','Estate','Villa','Castle','Keep','Citadel','Palace','Sky Fortress','Dragon Spire','Eternal Throne'];
 const houseCost=i=>Math.round(150*Math.pow(2.6,i-1));
 const NPCS=['Old Marta','Brother Hale','Tinker Wix','Captain Rusk','Widow Sable','Young Pip','Alchemist Orrin'];
 
 // ----- v3 additions -----
 const START={sorcerer:'wand',warlock:'wand',ranger:'bow',assassin:'bow',alchemist:'flask'};
-// worst to best: upgrade base time runs from 10s (worst) to 25s (best)
+// worst to best: upgrade base time runs from 1s (worst) to 10s (best)
 const SKILLRANK=['bargain','productivity','craft','shopfame','tactics','tough','resist','luck','mind','swing','speed','dodge','looting','focus','basedmg','basehp'];
-SKILLS.forEach(s=>{s.rank=SKILLRANK.indexOf(s.id);s.base=10+15*s.rank/(SKILLRANK.length-1)});
+SKILLS.forEach(s=>{s.rank=SKILLRANK.indexOf(s.id);s.base=1+9*s.rank/(SKILLRANK.length-1)});
 const BOSS={name:'Goblin Lord',hp:1500,dmg:35,iv:2000,gold:250,drop:'goblin_lord_ear',chance:.4}; // 50x a normal mob (30 hp, 5 dmg)
 const TOWNS=[
  {id:'hearth',name:'Hearthrest',skill:'basehp',trainer:'Mother Bramble'},
@@ -137,4 +141,17 @@ const ABIL={
  alchemist:{name:'Potion Pull',cd:30,d:'Random: heal 100 HP, burn all enemies, or poison one enemy.'},
  necromancer:{name:'Raise Undead',cd:35,d:'Raises the strongest mob you killed at 0.75x health until it dies.'}
 };
-const FXDEF={burn:{dps:20,name:'Burning',cls:'burn'},poison:{dps:30,name:'Poisoned',cls:'poison'},bleed:{dps:10,name:'Bleeding',cls:'bleed'}};
+const FXDEF={burn:{dps:20,name:'Burning',cls:'burn'},poison:{dps:30,name:'Poisoned',cls:'poison'},bleed:{dps:10,name:'Bleeding',cls:'bleed'},bone:{dps:0,name:'Bone',cls:'bone'}};
+
+ICON.spirit_bone=22;ICON.undead_spirit=23;
+const ENCH=[
+ {id:'relic',name:'Relic Slot',max:3,base:10,d:'Adds 1 relic slot per level.'},
+ {id:'spirit',name:'Spirit Slot',max:3,base:10,d:'Adds 1 spirit slot per level.'},
+ {id:'weapon',name:'Weapon Slot',max:3,base:12,d:'Adds 1 weapon slot per level. Equipped weapons add their damage together.'},
+ {id:'learn',name:'Faster Learning',max:10,base:3,d:'+8% skill training speed per level.'},
+ {id:'vital',name:'Vitality',max:10,base:4,d:'+5% max health per level.'},
+ {id:'keen',name:'Keen Edge',max:10,base:4,d:'+3% all damage per level.'},
+ {id:'fortune',name:'Fortune',max:10,base:4,d:'+3% luck per level.'},
+ {id:'recover',name:'Recovery',max:10,base:3,d:'+10% health regen per level.'},
+ {id:'pockets',name:'Deep Pockets',max:10,base:2,d:'+5 bag slots per level.'}
+];
